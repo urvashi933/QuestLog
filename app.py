@@ -28,7 +28,8 @@ session_state = {
     "hp": 100,
     "inventory": ["Iron Sword", "Tattered Cloak", "Dry Rations"],
     "quests": ["Begin your journey"],
-    "npcs": [{"name": "Town Crier", "relation": "Neutral"}]
+    "npcs": [{"name": "Town Crier", "relation": "Neutral"}],
+    "session_id": None
 }
 
 # Dynamic API Key references (allows setting them via UI!)
@@ -63,8 +64,22 @@ def get_memori_client():
         from memori import Memori
         # Initialize Memori SDK with explicit API key in Cloud Mode
         mem = Memori(api_key=api_key)
+        
+        # Partition memories by active hero to avoid cross-character leakage
+        entity_id = "questlog_player_hero"
+        if session_state.get("initialized") and session_state.get("name"):
+            # Clean character name to be a safe, unique entity identifier
+            safe_name = "".join(c for c in session_state["name"] if c.isalnum() or c in ("-", "_")).lower()
+            if safe_name:
+                entity_id = f"questlog_hero_{safe_name}"
+                
         # Set attribution for the game
-        mem.attribution(entity_id="questlog_player_hero", process_id="dungeon_master_v1")
+        mem.attribution(entity_id=entity_id, process_id="dungeon_master_v1")
+        
+        # Keep the exact same session_id across turns to allow sequential context building
+        if session_state.get("session_id"):
+            mem.set_session(session_state["session_id"])
+            
         return mem
     except Exception as e:
         print(f"Error initializing Memori SDK: {e}")
@@ -407,6 +422,9 @@ async def start_game(req: StartRequest):
     if mem:
         try:
             mem.new_session()
+            # Save the newly generated session_id to session_state so it persists across turns
+            session_state["session_id"] = str(mem.config.session_id)
+            
             # Capture initial character setup turn to register facts
             initial_user_event = f"Create character named {req.name}, a {req.char_class} with a background of '{req.background}'."
             initial_dm_narration = (
@@ -570,7 +588,8 @@ Output exactly a JSON object (no markdown, no backticks, just raw JSON) matching
             parse_resp = openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": state_parser_prompt}],
-                temperature=0.1
+                temperature=0.1,
+                response_format={"type": "json_object"}
             )
             import json
             raw_json = parse_resp.choices[0].message.content.strip()
@@ -642,6 +661,8 @@ async def reset_game():
     session_state["inventory"] = []
     session_state["quests"] = []
     session_state["npcs"] = []
+    
+    session_state["session_id"] = None
     
     # Try deleting Memories from BYODB if needed (Cloud memories are scoped per session_id)
     mem = get_memori_client()

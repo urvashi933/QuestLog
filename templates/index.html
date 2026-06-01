@@ -900,10 +900,79 @@
             font-size: 1.1rem;
         }
 
-        /* Responsive */
+        /* Mobile Tabs Bar */
+        .mobile-tabs {
+            display: none;
+            background: rgba(8, 8, 12, 0.95);
+            border-bottom: 1px solid rgba(197, 160, 89, 0.15);
+            padding: 8px 16px;
+            justify-content: space-around;
+            gap: 8px;
+            z-index: 10;
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            color: var(--text-muted);
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-family: var(--font-sans);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+            justify-content: center;
+            transition: all var(--transition-speed);
+        }
+
+        .tab-btn:hover {
+            color: var(--text-color);
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .tab-btn.active {
+            color: var(--gold);
+            border-color: var(--gold);
+            background: rgba(212, 175, 55, 0.05);
+            text-shadow: 0 0 8px var(--gold-glow);
+            box-shadow: 0 0 10px rgba(212, 175, 55, 0.05);
+        }
+
+        /* Responsive styling: stack sidebars elegantly & use active tab navigation */
         @media(max-width: 1024px) {
-            .sidebar {
-                display: none;
+            .mobile-tabs {
+                display: flex;
+            }
+
+            .container {
+                flex-direction: column;
+                padding: 12px;
+                gap: 12px;
+                height: calc(100vh - 175px);
+            }
+
+            /* Hide both sidebars and middle column by default on mobile screens */
+            .sidebar, .center-column {
+                display: none !important;
+                width: 100% !important;
+                height: 100% !important;
+            }
+
+            /* Display only the active tab layout */
+            .container.show-console .center-column {
+                display: flex !important;
+            }
+
+            .container.show-character .sidebar:first-of-type {
+                display: flex !important;
+            }
+
+            .container.show-journal .sidebar:last-of-type {
+                display: flex !important;
             }
         }
     </style>
@@ -927,8 +996,21 @@
         </div>
     </header>
 
+    <!-- Mobile Tabs -->
+    <div class="mobile-tabs">
+        <button class="tab-btn active" onclick="switchMobileTab(this, 'console')">
+            <i class="fa-solid fa-gamepad"></i> Console
+        </button>
+        <button class="tab-btn" onclick="switchMobileTab(this, 'character')">
+            <i class="fa-solid fa-user-shield"></i> Hero
+        </button>
+        <button class="tab-btn" onclick="switchMobileTab(this, 'journal')">
+            <i class="fa-solid fa-compass"></i> Journal
+        </button>
+    </div>
+
     <!-- Main Container -->
-    <div class="container">
+    <div class="container show-console" id="mainContainer">
         <!-- Left Sidebar: Character Info & Inventory -->
         <div class="sidebar">
             <div class="sidebar-panel glass-panel">
@@ -1145,6 +1227,16 @@
         document.addEventListener("DOMContentLoaded", () => {
             checkConfigStatus();
         });
+
+        // Mobile layout tab switcher
+        function switchMobileTab(element, tabName) {
+            const container = document.getElementById("mainContainer");
+            container.classList.remove("show-console", "show-character", "show-journal");
+            container.classList.add(`show-${tabName}`);
+            
+            document.querySelectorAll(".tab-btn").forEach(btn => btn.classList.remove("active"));
+            element.classList.add("active");
+        }
 
         // 0. Dynamic Provider fields toggle
         function handleProviderChange() {
