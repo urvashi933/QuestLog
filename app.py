@@ -183,13 +183,18 @@ def extract_facts(recall_resp: Any) -> List[str]:
         if isinstance(item, str):
             facts.append(item)
         elif isinstance(item, dict):
-            content = item.get("content", "")
+            # Support any common fact key format returned by Memori Cloud or custom stores
+            content = item.get("content") or item.get("fact") or item.get("text")
             if content:
                 facts.append(str(content))
             else:
                 facts.append(str(item))
         elif hasattr(item, "content"):
             facts.append(str(item.content))
+        elif hasattr(item, "fact"):
+            facts.append(str(item.fact))
+        elif hasattr(item, "text"):
+            facts.append(str(item.text))
         else:
             facts.append(str(item))
             
@@ -319,18 +324,36 @@ def generate_offline_narration(message: str, session_state: Dict[str, Any]) -> D
 @app.post("/api/config")
 async def update_config(req: ConfigUpdateRequest):
     """Dynamically update API keys from the frontend."""
-    keys_config["memori_api_key"] = req.memori_api_key.strip()
-    keys_config["openai_api_key"] = req.openai_api_key.strip() if req.openai_api_key else ""
-    keys_config["gemini_api_key"] = req.gemini_api_key.strip() if req.gemini_api_key else ""
+    mem_val = req.memori_api_key.strip() if req.memori_api_key else ""
+    oa_val = req.openai_api_key.strip() if req.openai_api_key else ""
+    gem_val = req.gemini_api_key.strip() if req.gemini_api_key else ""
+    
+    # Only update keys if they have changed from the '********' placeholder
+    if mem_val != "********":
+        keys_config["memori_api_key"] = mem_val
+    if oa_val != "********":
+        keys_config["openai_api_key"] = oa_val
+    if gem_val != "********":
+        keys_config["gemini_api_key"] = gem_val
+        
     keys_config["preferred_provider"] = req.preferred_provider.strip() if req.preferred_provider else "offline"
     
     # Save to environment for consistency
     if keys_config["memori_api_key"]:
         os.environ["MEMORI_API_KEY"] = keys_config["memori_api_key"]
+    else:
+        os.environ.pop("MEMORI_API_KEY", None)
+        
     if keys_config["openai_api_key"]:
         os.environ["OPENAI_API_KEY"] = keys_config["openai_api_key"]
+    else:
+        os.environ.pop("OPENAI_API_KEY", None)
+        
     if keys_config["gemini_api_key"]:
         os.environ["GEMINI_API_KEY"] = keys_config["gemini_api_key"]
+    else:
+        os.environ.pop("GEMINI_API_KEY", None)
+        
     if keys_config["preferred_provider"]:
         os.environ["PREFERRED_PROVIDER"] = keys_config["preferred_provider"]
         
