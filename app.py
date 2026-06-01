@@ -238,6 +238,8 @@ Rules for updating inventory and stats in your narrative:
         )
         narration = response.choices[0].message.content
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"OpenAI error: {str(e)}")
 
     # 4. Save this turn into Memori Cloud so it's committed to eternal memory!
