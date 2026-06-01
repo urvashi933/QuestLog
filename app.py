@@ -79,6 +79,41 @@ def get_openai_client():
         print(f"Error initializing OpenAI: {e}")
         return None
 
+def extract_facts(recall_resp: Any) -> List[str]:
+    """Helper to safely extract string facts from any Memori recall response structure."""
+    if not recall_resp:
+        return []
+    
+    facts = []
+    
+    # Check if it's a dictionary (like CloudRecallResponse) with a 'facts' list
+    if isinstance(recall_resp, dict) and "facts" in recall_resp:
+        items = recall_resp["facts"]
+    elif hasattr(recall_resp, "facts"):
+        items = recall_resp.facts
+    elif isinstance(recall_resp, list):
+        items = recall_resp
+    else:
+        items = [recall_resp]
+        
+    for item in items:
+        if not item:
+            continue
+        if isinstance(item, str):
+            facts.append(item)
+        elif isinstance(item, dict):
+            content = item.get("content", "")
+            if content:
+                facts.append(str(content))
+            else:
+                facts.append(str(item))
+        elif hasattr(item, "content"):
+            facts.append(str(item.content))
+        else:
+            facts.append(str(item))
+            
+    return [f for f in facts if f]
+
 @app.post("/api/config")
 async def update_config(req: ConfigUpdateRequest):
     """Dynamically update API keys from the frontend."""
@@ -181,21 +216,7 @@ async def play_turn(req: ChatRequest):
         try:
             # Recall past relevant actions/items/quests from Memori Cloud
             recall_resp = mem.recall(req.message, limit=8)
-            facts = []
-            if hasattr(recall_resp, "facts"):  # CloudRecallResponse
-                facts = [f.content for f in recall_resp.facts]
-            elif isinstance(recall_resp, list):
-                for r in recall_resp:
-                    if isinstance(r, dict):
-                        facts.append(r.get("content", ""))
-                    elif hasattr(r, "content"):
-                        facts.append(r.content)
-                    else:
-                        facts.append(str(r))
-            else:
-                facts = [str(recall_resp)]
-            
-            recalled_facts = [f for f in facts if f]
+            recalled_facts = extract_facts(recall_resp)
             if recalled_facts:
                 memories_context = "\n".join([f"- {fact}" for fact in recalled_facts])
         except Exception as e:
@@ -336,21 +357,8 @@ async def get_memories():
     try:
         # Recall general facts to demonstrate background database
         recall_resp = mem.recall("player character background, stats, quest history, items acquired", limit=30)
-        facts = []
-        if hasattr(recall_resp, "facts"):
-            facts = [f.content for f in recall_resp.facts]
-        elif isinstance(recall_resp, list):
-            for r in recall_resp:
-                if isinstance(r, dict):
-                    facts.append(r.get("content", ""))
-                elif hasattr(r, "content"):
-                    facts.append(r.content)
-                else:
-                    facts.append(str(r))
-        else:
-            facts = [str(recall_resp)]
-            
-        return {"status": "active", "memories": [f for f in facts if f]}
+        facts = extract_facts(recall_resp)
+        return {"status": "active", "memories": facts}
     except Exception as e:
         return {"status": "error", "message": str(e), "memories": []}
 
