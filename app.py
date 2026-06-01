@@ -114,6 +114,127 @@ def extract_facts(recall_resp: Any) -> List[str]:
             
     return [f for f in facts if f]
 
+def generate_offline_narration(message: str, session_state: Dict[str, Any]) -> Dict[str, Any]:
+    """Generates highly atmospheric dark fantasy narration locally when API is unavailable."""
+    msg = message.lower()
+    name = session_state.get("name", "Hero")
+    char_class = session_state.get("char_class", "Warrior")
+    background = session_state.get("background", "Vagabond")
+    
+    # Check main categories of player action
+    is_movement = any(k in msg for k in ["north", "south", "east", "west", "go to", "walk", "move", "enter", "travel", "climb", "descend", "path", "road"])
+    is_combat = any(k in msg for k in ["attack", "kill", "fight", "strike", "slash", "shoot", "cast", "spell", "slay", "combat", "weapon", "hit"])
+    is_search = any(k in msg for k in ["search", "explore", "inspect", "look", "find", "loot", "open", "chest", "examine", "grab", "take", "pickup"])
+    is_rest = any(k in msg for k in ["rest", "sleep", "camp", "heal", "eat", "drink", "potion", "bandage"])
+    is_talk = any(k in msg for k in ["talk", "speak", "ask", "say", "greet", "hello", "shout", "whisper", "conversation"])
+    
+    recalled_facts = [
+        f"The local realm whispers of {name} the {char_class}'s presence.",
+        f"You are navigating the cursed Darkwoods as a former {background}.",
+        "A heavy silence hangs in the air, broken only by shifting winds."
+    ]
+    
+    # 1. MOVEMENT
+    if is_movement:
+        import random
+        locs = [
+            "a derelict moss-covered stone altar rising like a tooth from the earth",
+            "the crumbling boundary wall of a long-forgotten fortress",
+            "a dark hollow of twisted, ancient elderwood trees that seem to watch you pass",
+            "a muddy path descending into a lightless ravine where pale mist gathers"
+        ]
+        chosen_loc = random.choice(locs)
+        hp_change = -3 if random.random() > 0.5 else 0
+        hp_tag = " [HP: -3]" if hp_change else ""
+        
+        narration = (
+            f"You navigate cautiously. Pushing past dense briars, you discover {chosen_loc}. "
+            f"The environment feels heavy with ancient, long-dormant magic.{hp_tag}\n\n"
+            f"*What do you do here?*"
+        )
+        if hp_change:
+            session_state["hp"] = max(0, session_state["hp"] + hp_change)
+            
+    # 2. COMBAT
+    elif is_combat:
+        import random
+        foes = [
+            ("feral shadow-wolf with embers glowing in its eyes", 15),
+            ("shuffling skeleton warrior clutching a rusted broadsword", 10),
+            ("venomous blood-spider suspended from the black branches above", 12),
+            ("forest cultist clutching a jagged ritual dagger", 18)
+        ]
+        foe, dmg = random.choice(foes)
+        weapon = session_state["inventory"][0] if session_state["inventory"] else "fists"
+        
+        narration = (
+            f"A {foe} springs from the gloom with a bloodcurdling shriek! "
+            f"You immediately draw your *{weapon}* and strike back. Your blow connects cleanly, "
+            f"slaying the threat, but you take a harsh counter-attack in the struggle. [HP: -{dmg}] "
+            f"[Quest: Survive the Darkwoods] Progressing!"
+        )
+        session_state["hp"] = max(0, session_state["hp"] - dmg)
+        
+    # 3. SEARCH
+    elif is_search:
+        import random
+        finds = [
+            ("Bronze Key", "key"),
+            ("Vial of Glowing Elixir", "potion"),
+            ("Old Leather-Bound Journal", "book"),
+            ("Sack of Silver Coins", "coins")
+        ]
+        item_name, item_type = random.choice(finds)
+        
+        if item_name not in session_state["inventory"]:
+            session_state["inventory"].append(item_name)
+            inv_tag = f" [Found: {item_name}]"
+        else:
+            inv_tag = ""
+            
+        narration = (
+            f"You scour the damp undergrowth and hollow rotted logs. Hidden beneath "
+            f"decaying leaves, your fingers brush against something solid. You pull out a *{item_name}*!{inv_tag} "
+            f"This discovery might prove useful in your search. [HP: +5]"
+        )
+        session_state["hp"] = min(100, session_state["hp"] + 5)
+        
+    # 4. REST
+    elif is_rest:
+        narration = (
+            f"You clear a small space beneath the canopy, building a low-burning fire. "
+            f"Eating dry rations and tending your wounds, you allow your weary muscles to rest. "
+            f"The peace of the wild washes over you. [HP: +25]"
+        )
+        session_state["hp"] = min(100, session_state["hp"] + 25)
+        
+    # 5. TALK
+    elif is_talk:
+        narration = (
+            f"A weathered traveler in a tattered gray cloak steps silently out from the mist. "
+            f"They hold up a lantern, sizing you up before speaking in a raspy whisper: "
+            f"\"Few dare wander these woods alone, {name}. Beware the crypts to the east...\" "
+            f"[NPC: Mysterious Traveler] Relation: Friendly"
+        )
+        npc_exists = any(n["name"] == "Mysterious Traveler" for n in session_state["npcs"])
+        if not npc_exists:
+            session_state["npcs"].append({"name": "Mysterious Traveler", "relation": "Friendly"})
+            
+    # 6. DEFAULT
+    else:
+        narration = (
+            f"The fog swirls around your boots, and the clicking of overhead branches "
+            f"sounds like soft laughter in the dark. Your reflexes keep your hands "
+            f"poised near your belt. Every path looks similar, yet danger is close.\n\n"
+            f"*State your next move carefully.*"
+        )
+        
+    return {
+        "narration": narration,
+        "state": session_state,
+        "recalled_facts": recalled_facts
+    }
+
 @app.post("/api/config")
 async def update_config(req: ConfigUpdateRequest):
     """Dynamically update API keys from the frontend."""
