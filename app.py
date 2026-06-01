@@ -34,7 +34,9 @@ session_state = {
 # Dynamic API Key references (allows setting them via UI!)
 keys_config = {
     "memori_api_key": os.getenv("MEMORI_API_KEY", ""),
-    "openai_api_key": os.getenv("OPENAI_API_KEY", "")
+    "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
+    "gemini_api_key": os.getenv("GEMINI_API_KEY", ""),
+    "preferred_provider": os.getenv("PREFERRED_PROVIDER", "offline")
 }
 
 class ChatRequest(BaseModel):
@@ -47,7 +49,9 @@ class StartRequest(BaseModel):
 
 class ConfigUpdateRequest(BaseModel):
     memori_api_key: str
-    openai_api_key: str
+    openai_api_key: Optional[str] = ""
+    gemini_api_key: Optional[str] = ""
+    preferred_provider: Optional[str] = "offline"
 
 def get_memori_client():
     """Retrieve or initialize the Memori client based on configured key."""
@@ -78,6 +82,83 @@ def get_openai_client():
     except Exception as e:
         print(f"Error initializing OpenAI: {e}")
         return None
+
+def call_gemini_api(prompt: str, system_instruction: str, api_key: str) -> str:
+    """Make a direct HTTP request to the Gemini API v1beta."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "systemInstruction": {
+            "parts": [{"text": system_instruction}]
+        },
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": prompt}]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.7,
+            "maxOutputTokens": 250
+        }
+    }
+    import requests
+    response = requests.post(url, json=payload, headers=headers, timeout=10)
+    response.raise_for_status()
+    resp_json = response.json()
+    try:
+        return resp_json["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        raise Exception(f"Gemini API returned unexpected format or error: {resp_json}")
+
+def parse_state_gemini(session_state: Dict[str, Any], message: str, narration: str, api_key: str) -> Dict[str, Any]:
+    """Parse character sheet updates using Gemini in JSON mode."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    
+    state_parser_prompt = f"""You are a helper parsing RPG state updates. 
+Analyze the player's latest action and the Dungeon Master's narration, and output the updated character sheet in JSON format.
+
+Current state:
+HP: {session_state['hp']}
+Inventory: {session_state['inventory']}
+Quests: {session_state['quests']}
+NPCs: {session_state['npcs']}
+
+Player's Action: {message}
+DM's Narration: {narration}
+
+Output exactly a JSON object (no markdown, no backticks, just raw JSON) matching this structure:
+{{
+  "hp": integer (current HP between 0 and 100. Adjust based on any damage/healing in the narration. Do not drop below 0 or exceed 100),
+  "inventory": [list of strings of all items currently carried. Update if items are picked up, dropped, consumed, or lost],
+  "quests": [list of active/completed quests. Add new ones or modify completed ones accordingly],
+  "npcs": [list of objects with keys "name" (string) and "relation" (friendly, hostile, neutral, helpful)]
+}}
+"""
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": state_parser_prompt}]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.1,
+            "responseMimeType": "application/json"
+        }
+    }
+    import requests
+    response = requests.post(url, json=payload, headers=headers, timeout=10)
+    response.raise_for_status()
+    resp_json = response.json()
+    try:
+        raw_json = resp_json["candidates"][0]["content"]["parts"][0]["text"].strip()
+        import json
+        return json.loads(raw_json)
+    except Exception as e:
+        print(f"Error parsing Gemini state response: {e}")
+        raise e
 
 def extract_facts(recall_resp: Any) -> List[str]:
     """Helper to safely extract string facts from any Memori recall response structure."""
@@ -239,24 +320,40 @@ def generate_offline_narration(message: str, session_state: Dict[str, Any]) -> D
 async def update_config(req: ConfigUpdateRequest):
     """Dynamically update API keys from the frontend."""
     keys_config["memori_api_key"] = req.memori_api_key.strip()
-    keys_config["openai_api_key"] = req.openai_api_key.strip()
+    keys_config["openai_api_key"] = req.openai_api_key.strip() if req.openai_api_key else ""
+    keys_config["gemini_api_key"] = req.gemini_api_key.strip() if req.gemini_api_key else ""
+    keys_config["preferred_provider"] = req.preferred_provider.strip() if req.preferred_provider else "offline"
     
     # Save to environment for consistency
     if keys_config["memori_api_key"]:
         os.environ["MEMORI_API_KEY"] = keys_config["memori_api_key"]
     if keys_config["openai_api_key"]:
         os.environ["OPENAI_API_KEY"] = keys_config["openai_api_key"]
+    if keys_config["gemini_api_key"]:
+        os.environ["GEMINI_API_KEY"] = keys_config["gemini_api_key"]
+    if keys_config["preferred_provider"]:
+        os.environ["PREFERRED_PROVIDER"] = keys_config["preferred_provider"]
         
-    return {"status": "success", "memori_active": bool(keys_config["memori_api_key"]), "openai_active": bool(keys_config["openai_api_key"])}
+    return {
+        "status": "success", 
+        "memori_active": bool(keys_config["memori_api_key"]), 
+        "openai_active": bool(keys_config["openai_api_key"]),
+        "gemini_active": bool(keys_config["gemini_api_key"]),
+        "preferred_provider": keys_config["preferred_provider"]
+    }
 
 @app.get("/api/config")
 async def get_config():
     """Check status of API key configuration."""
     mem_key = keys_config["memori_api_key"] or os.getenv("MEMORI_API_KEY", "")
     oa_key = keys_config["openai_api_key"] or os.getenv("OPENAI_API_KEY", "")
+    gem_key = keys_config["gemini_api_key"] or os.getenv("GEMINI_API_KEY", "")
+    pref = keys_config["preferred_provider"] or os.getenv("PREFERRED_PROVIDER", "offline")
     return {
         "memori_active": bool(mem_key),
         "openai_active": bool(oa_key),
+        "gemini_active": bool(gem_key),
+        "preferred_provider": pref,
         "has_fallback": True
     }
 
@@ -319,11 +416,25 @@ async def play_turn(req: ChatRequest):
     if not session_state["initialized"]:
         raise HTTPException(status_code=400, detail="Game not started. Please create a character first.")
         
-    openai_client = get_openai_client()
-    if not openai_client:
-        # Graceful warning if OpenAI key is missing
+    provider = keys_config["preferred_provider"] or os.getenv("PREFERRED_PROVIDER", "offline")
+    
+    # Check if we should run offline directly
+    if provider == "offline":
+        return generate_offline_narration(req.message, session_state)
+        
+    openai_key = keys_config["openai_api_key"] or os.getenv("OPENAI_API_KEY", "")
+    gemini_key = keys_config["gemini_api_key"] or os.getenv("GEMINI_API_KEY", "")
+    
+    if provider == "openai" and not openai_key:
         return {
             "narration": "[SYSTEM WARNING: OpenAI API key is missing. Please configure it in the settings panel to begin your adventure!]\n\nMeanwhile, you try to move forward, but the world is frozen in stasis.",
+            "state": session_state,
+            "recalled_facts": []
+        }
+        
+    if provider == "gemini" and not gemini_key:
+        return {
+            "narration": "[SYSTEM WARNING: Gemini API key is missing. Please configure it in the settings panel to begin your adventure!]\n\nMeanwhile, you try to move forward, but the world is frozen in stasis.",
             "state": session_state,
             "recalled_facts": []
         }
@@ -368,21 +479,32 @@ Rules for updating inventory and stats in your narrative:
 - If they meet a character, describe their reaction (e.g., 'Eldrin the Sage nods warily').
 """
 
-    # 3. Call OpenAI for turn narrative
+    narration = ""
+    # 3. Call selected provider for turn narrative with try-except fallback
     try:
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": req.message}
-            ],
-            temperature=0.7
-        )
-        narration = response.choices[0].message.content
+        if provider == "openai":
+            from openai import OpenAI
+            openai_client = OpenAI(api_key=openai_key)
+            response = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": req.message}
+                ],
+                temperature=0.7
+            )
+            narration = response.choices[0].message.content
+        elif provider == "gemini":
+            narration = call_gemini_api(req.message, system_prompt, gemini_key)
+        else:
+            return generate_offline_narration(req.message, session_state)
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"OpenAI error: {str(e)}")
+        fallback_data = generate_offline_narration(req.message, session_state)
+        warning_msg = f"[SYSTEM WARNING: Dungeon Master LLM failed due to an API error ({str(e)}). Falling back to Local Sandbox narration!]\n\n"
+        fallback_data["narration"] = warning_msg + fallback_data["narration"]
+        return fallback_data
 
     # 4. Save this turn into Memori Cloud so it's committed to eternal memory!
     if mem:
@@ -397,8 +519,6 @@ Rules for updating inventory and stats in your narrative:
             print(f"Error capturing turn in Memori: {e}")
 
     # 5. Extract state updates (HP, Inventory, Quests, NPCs) from the turn
-    # This allows us to display real-time updates in the sidebar UI!
-    # If Memori is active, we ask OpenAI to parse the updated state based on history + narration.
     state_parser_prompt = f"""You are a helper parsing RPG state updates. 
 Analyze the player's latest action and the Dungeon Master's narration, and output the updated character sheet in JSON format.
 
@@ -419,33 +539,38 @@ Output exactly a JSON object (no markdown, no backticks, just raw JSON) matching
   "npcs": [list of objects with keys "name" (string) and "relation" (friendly, hostile, neutral, helpful)]
 }}
 """
+    updated_state = None
     try:
-        parse_resp = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": state_parser_prompt}],
-            temperature=0.1
-        )
-        import json
-        raw_json = parse_resp.choices[0].message.content.strip()
-        # Clean backticks if any
-        if raw_json.startswith("```"):
-            lines = raw_json.split("\n")
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines[-1].startswith("```"):
-                lines = lines[:-1]
-            raw_json = "\n".join(lines).strip()
-            
-        updated_state = json.loads(raw_json)
-        
-        # Merge values safely
+        if provider == "openai":
+            from openai import OpenAI
+            openai_client = OpenAI(api_key=openai_key)
+            parse_resp = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": state_parser_prompt}],
+                temperature=0.1
+            )
+            import json
+            raw_json = parse_resp.choices[0].message.content.strip()
+            if raw_json.startswith("```"):
+                lines = raw_json.split("\n")
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines[-1].startswith("```"):
+                    lines = lines[:-1]
+                raw_json = "\n".join(lines).strip()
+            updated_state = json.loads(raw_json)
+        elif provider == "gemini":
+            updated_state = parse_state_gemini(session_state, req.message, narration, gemini_key)
+    except Exception as e:
+        print(f"Error parsing state updates: {e}")
+
+    # Merge values safely
+    if updated_state:
         session_state["hp"] = max(0, min(100, updated_state.get("hp", session_state["hp"])))
         session_state["inventory"] = updated_state.get("inventory", session_state["inventory"])
         session_state["quests"] = updated_state.get("quests", session_state["quests"])
         session_state["npcs"] = updated_state.get("npcs", session_state["npcs"])
-    except Exception as e:
-        print(f"Error parsing state updates: {e}")
-        # In case of parsing error, we just fallback or do regex analysis
+    else:
         if "[HP: -" in narration:
             try:
                 dmg = int(narration.split("[HP: -")[1].split("]")[0])

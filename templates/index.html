@@ -1085,20 +1085,34 @@
     <div class="settings-overlay" id="settingsModal">
         <div class="modal-box">
             <h2><i class="fa-solid fa-key"></i> Key Configuration</h2>
-            <p>Provide your credentials to activate OpenAI's Dungeon Master and Memori's Background Recall capabilities.</p>
+            <p>Provide your credentials to activate OpenAI or Gemini's Dungeon Master and Memori's Background Recall capabilities.</p>
             
             <form onsubmit="submitSettingsConfig(event)">
                 <div class="form-group">
                     <label for="settingsMemoriKey">Memori API Key</label>
                     <input type="password" id="settingsMemoriKey" class="form-input" placeholder="MEMORI_API_KEY (Free developer key at app.memorilabs.ai)">
                     <span style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 4px;">
-                        * Leave blank to run in Local Sandbox mode!
+                        * Optional: Connects to Memori Eternal Memory database!
                     </span>
                 </div>
 
                 <div class="form-group">
+                    <label for="settingsProvider">Preferred DM Model</label>
+                    <select id="settingsProvider" class="form-input" onchange="handleProviderChange()" style="background-color: var(--bg-color); color: white; border: 1px solid rgba(255, 255, 255, 0.1);">
+                        <option value="offline">Offline Sandbox (No Keys Required)</option>
+                        <option value="openai">OpenAI (GPT-4o-mini)</option>
+                        <option value="gemini">Gemini (Gemini 1.5 Flash)</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="openaiKeyGroup" style="display: none;">
                     <label for="settingsOpenAIKey">OpenAI API Key</label>
-                    <input type="password" id="settingsOpenAIKey" class="form-input" placeholder="sk-..." required>
+                    <input type="password" id="settingsOpenAIKey" class="form-input" placeholder="sk-...">
+                </div>
+
+                <div class="form-group" id="geminiKeyGroup" style="display: none;">
+                    <label for="settingsGeminiKey">Gemini API Key</label>
+                    <input type="password" id="settingsGeminiKey" class="form-input" placeholder="AIzaSy...">
                 </div>
 
                 <div style="display: flex; gap: 12px; margin-top: 24px;">
@@ -1132,6 +1146,30 @@
             checkConfigStatus();
         });
 
+        // 0. Dynamic Provider fields toggle
+        function handleProviderChange() {
+            const provider = document.getElementById("settingsProvider").value;
+            const openaiGroup = document.getElementById("openaiKeyGroup");
+            const geminiGroup = document.getElementById("geminiKeyGroup");
+            
+            if (provider === "openai") {
+                openaiGroup.style.display = "block";
+                document.getElementById("settingsOpenAIKey").required = true;
+                geminiGroup.style.display = "none";
+                document.getElementById("settingsGeminiKey").required = false;
+            } else if (provider === "gemini") {
+                openaiGroup.style.display = "none";
+                document.getElementById("settingsOpenAIKey").required = false;
+                geminiGroup.style.display = "block";
+                document.getElementById("settingsGeminiKey").required = true;
+            } else {
+                openaiGroup.style.display = "none";
+                document.getElementById("settingsOpenAIKey").required = false;
+                geminiGroup.style.display = "none";
+                document.getElementById("settingsGeminiKey").required = false;
+            }
+        }
+
         // 1. Select Class in Character Creator
         function selectClass(element, className, iconName) {
             document.querySelectorAll(".class-option").forEach(el => el.classList.remove("selected"));
@@ -1160,15 +1198,47 @@
                     throw new Error(data.detail || `Server returned ${response.status}`);
                 }
                 
-                updateStatusBadge(data.memori_active, data.openai_active);
+                // Set fields in modal
+                document.getElementById("settingsProvider").value = data.preferred_provider || "offline";
+                document.getElementById("settingsMemoriKey").value = data.memori_active ? "********" : "";
+                document.getElementById("settingsOpenAIKey").value = data.openai_active ? "********" : "";
+                document.getElementById("settingsGeminiKey").value = data.gemini_active ? "********" : "";
                 
-                if (data.openai_active) {
-                    // Prefill input box visual state
+                handleProviderChange();
+                
+                updateStatusBadge(data.memori_active, data.openai_active || data.gemini_active, data.preferred_provider);
+                
+                // Allow playing if preferred provider is offline OR we have active LLM key for chosen provider!
+                const hasKey = (data.preferred_provider === "openai" && data.openai_active) || 
+                               (data.preferred_provider === "gemini" && data.gemini_active);
+                
+                if (data.preferred_provider === "offline" || hasKey) {
+                    // Enable inputs
                     document.getElementById("chatInput").disabled = false;
                     document.getElementById("sendBtn").disabled = false;
                     document.getElementById("chatInput").placeholder = "What do you do next?";
+                    
+                    // Check if game is already active
+                    const statusRes = await fetch("/api/status");
+                    const statusData = await statusRes.json();
+                    if (statusData && statusData.initialized) {
+                        document.getElementById("characterModal").classList.add("hidden");
+                        document.getElementById("charName").innerText = statusData.name;
+                        document.getElementById("charClassAndBg").innerText = `${statusData.char_class} | ${statusData.background}`;
+                        
+                        let iconHtml = '<i class="fa-solid fa-helmet-battle"></i>';
+                        if (statusData.char_class.toLowerCase() === 'mage') iconHtml = '<i class="fa-solid fa-wand-magic"></i>';
+                        else if (statusData.char_class.toLowerCase() === 'rogue') iconHtml = '<i class="fa-solid fa-user-ninja"></i>';
+                        else if (statusData.char_class.toLowerCase() === 'cleric') iconHtml = '<i class="fa-solid fa-church"></i>';
+                        document.getElementById("avatarIcon").innerHTML = iconHtml;
+                        
+                        updatePlayerSheetUI(statusData);
+                        fetchMemoriesList();
+                    } else {
+                        document.getElementById("characterModal").classList.remove("hidden");
+                    }
                 } else {
-                    // Open Settings Modal if no OpenAI key found
+                    // Open Settings Modal if no valid active provider configured
                     toggleSettingsModal(true);
                 }
             } catch (e) {
@@ -1177,14 +1247,19 @@
         }
 
         // Update badge states
-        function updateStatusBadge(memoriActive, openaiActive) {
+        function updateStatusBadge(memoriActive, llmActive, provider) {
             const badge = document.getElementById("memStatusBadge");
-            if (memoriActive) {
+            let memoriText = memoriActive ? "Memori Active" : "Memori Inactive";
+            let providerText = "Offline Sandbox";
+            if (provider === "openai") providerText = "OpenAI DM";
+            else if (provider === "gemini") providerText = "Gemini DM";
+            
+            if (provider !== "offline" && llmActive) {
                 badge.className = "status-badge active";
-                badge.innerHTML = `<i class="fa-solid fa-brain"></i> Memori Cloud Active`;
+                badge.innerHTML = `<i class="fa-solid fa-brain"></i> ${providerText} | ${memoriText}`;
             } else {
                 badge.className = "status-badge";
-                badge.innerHTML = `<i class="fa-solid fa-brain-line"></i> Local Sandbox Mode`;
+                badge.innerHTML = `<i class="fa-solid fa-brain-line"></i> ${providerText} | ${memoriText}`;
             }
         }
 
@@ -1193,12 +1268,19 @@
             e.preventDefault();
             const memoriKey = document.getElementById("settingsMemoriKey").value;
             const openaiKey = document.getElementById("settingsOpenAIKey").value;
+            const geminiKey = document.getElementById("settingsGeminiKey").value;
+            const provider = document.getElementById("settingsProvider").value;
 
             try {
                 const res = await fetch("/api/config", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ memori_api_key: memoriKey, openai_api_key: openaiKey })
+                    body: JSON.stringify({ 
+                        memori_api_key: memoriKey, 
+                        openai_api_key: openaiKey,
+                        gemini_api_key: geminiKey,
+                        preferred_provider: provider
+                    })
                 });
                 const data = await res.json();
                 
@@ -1207,7 +1289,7 @@
                 }
                 
                 if (data.status === "success") {
-                    updateStatusBadge(data.memori_active, data.openai_active);
+                    updateStatusBadge(data.memori_active, data.openai_active || data.gemini_active, data.preferred_provider);
                     toggleSettingsModal(false);
                     
                     // Enable inputs
@@ -1216,7 +1298,11 @@
                     document.getElementById("chatInput").placeholder = "What do you do next?";
                     
                     // Trigger character creation screen if not initialized
-                    document.getElementById("characterModal").classList.remove("hidden");
+                    const statusRes = await fetch("/api/status");
+                    const statusData = await statusRes.json();
+                    if (!statusData || !statusData.initialized) {
+                        document.getElementById("characterModal").classList.remove("hidden");
+                    }
                 }
             } catch (err) {
                 alert("Failed to update configurations: " + err.message);
