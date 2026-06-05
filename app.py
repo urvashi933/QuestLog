@@ -34,10 +34,10 @@ session_state = {
 
 # Dynamic API Key references (allows setting them via UI!)
 keys_config = {
-    "memori_api_key": os.getenv("MEMORI_API_KEY", ""),
-    "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
-    "gemini_api_key": os.getenv("GEMINI_API_KEY", ""),
-    "preferred_provider": os.getenv("PREFERRED_PROVIDER", "offline")
+    "memori_api_key": os.getenv("MEMORI_API_KEY", "").strip(),
+    "openai_api_key": os.getenv("OPENAI_API_KEY", "").strip(),
+    "gemini_api_key": os.getenv("GEMINI_API_KEY", "").strip(),
+    "preferred_provider": os.getenv("PREFERRED_PROVIDER", "offline").strip()
 }
 
 # Flag to indicate if keys were pre-configured via server environment variables
@@ -59,7 +59,7 @@ class ConfigUpdateRequest(BaseModel):
 
 def get_memori_client():
     """Retrieve or initialize the Memori client based on configured key."""
-    api_key = keys_config["memori_api_key"] or os.getenv("MEMORI_API_KEY", "")
+    api_key = (keys_config["memori_api_key"] or os.getenv("MEMORI_API_KEY", "")).strip()
     if not api_key:
         return None
     
@@ -90,7 +90,7 @@ def get_memori_client():
 
 def get_openai_client():
     """Retrieve or initialize the OpenAI client based on configured key."""
-    api_key = keys_config["openai_api_key"] or os.getenv("OPENAI_API_KEY", "")
+    api_key = (keys_config["openai_api_key"] or os.getenv("OPENAI_API_KEY", "")).strip()
     if not api_key:
         return None
     
@@ -103,7 +103,7 @@ def get_openai_client():
 
 def call_gemini_api(prompt: str, system_instruction: str, api_key: str) -> str:
     """Make a direct HTTP request to the Gemini API v1beta."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "systemInstruction": {
@@ -131,7 +131,7 @@ def call_gemini_api(prompt: str, system_instruction: str, api_key: str) -> str:
 
 def parse_state_gemini(session_state: Dict[str, Any], message: str, narration: str, api_key: str) -> Dict[str, Any]:
     """Parse character sheet updates using Gemini in JSON mode."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
     
     state_parser_prompt = f"""You are a helper parsing RPG state updates. 
@@ -389,10 +389,10 @@ async def update_config(req: ConfigUpdateRequest):
 @app.get("/api/config")
 async def get_config():
     """Check status of API key configuration."""
-    mem_key = keys_config["memori_api_key"] or os.getenv("MEMORI_API_KEY", "")
-    oa_key = keys_config["openai_api_key"] or os.getenv("OPENAI_API_KEY", "")
-    gem_key = keys_config["gemini_api_key"] or os.getenv("GEMINI_API_KEY", "")
-    pref = keys_config["preferred_provider"] or os.getenv("PREFERRED_PROVIDER", "offline")
+    mem_key = (keys_config["memori_api_key"] or os.getenv("MEMORI_API_KEY", "")).strip()
+    oa_key = (keys_config["openai_api_key"] or os.getenv("OPENAI_API_KEY", "")).strip()
+    gem_key = (keys_config["gemini_api_key"] or os.getenv("GEMINI_API_KEY", "")).strip()
+    pref = (keys_config["preferred_provider"] or os.getenv("PREFERRED_PROVIDER", "offline")).strip()
     return {
         "memori_active": bool(mem_key),
         "openai_active": bool(oa_key),
@@ -470,8 +470,8 @@ async def play_turn(req: ChatRequest):
     if provider == "offline":
         return generate_offline_narration(req.message, session_state)
         
-    openai_key = keys_config["openai_api_key"] or os.getenv("OPENAI_API_KEY", "")
-    gemini_key = keys_config["gemini_api_key"] or os.getenv("GEMINI_API_KEY", "")
+    openai_key = (keys_config["openai_api_key"] or os.getenv("OPENAI_API_KEY", "")).strip()
+    gemini_key = (keys_config["gemini_api_key"] or os.getenv("GEMINI_API_KEY", "")).strip()
     
     if provider == "openai" and not openai_key:
         return {
