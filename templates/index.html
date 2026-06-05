@@ -987,7 +987,7 @@
             <span>Memori Powered</span>
         </div>
         <div class="header-actions">
-            <button class="btn" onclick="toggleSettingsModal(true)">
+            <button class="btn" onclick="toggleSettingsModal(true)" id="setupKeysBtn">
                 <i class="fa-solid fa-gears"></i> Setup Keys
             </button>
             <button class="btn btn-primary" onclick="resetAdventure()">
@@ -1288,6 +1288,12 @@
                 
                 if (!response.ok) {
                     throw new Error(data.detail || `Server returned ${response.status}`);
+                }
+                
+                // Hide Setup Keys button if configuration is locked by backend env variables
+                if (data.locked) {
+                    const setupBtn = document.getElementById("setupKeysBtn");
+                    if (setupBtn) setupBtn.style.display = "none";
                 }
                 
                 // Set fields in modal

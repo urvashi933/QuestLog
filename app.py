@@ -40,6 +40,9 @@ keys_config = {
     "preferred_provider": os.getenv("PREFERRED_PROVIDER", "offline")
 }
 
+# Flag to indicate if keys were pre-configured via server environment variables
+ENV_KEYS_CONFIGURED = bool(os.getenv("MEMORI_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY"))
+
 class ChatRequest(BaseModel):
     message: str
 
@@ -339,6 +342,9 @@ def generate_offline_narration(message: str, session_state: Dict[str, Any]) -> D
 @app.post("/api/config")
 async def update_config(req: ConfigUpdateRequest):
     """Dynamically update API keys from the frontend."""
+    if ENV_KEYS_CONFIGURED:
+        raise HTTPException(status_code=403, detail="Configuration is locked by environment variables.")
+        
     mem_val = req.memori_api_key.strip() if req.memori_api_key else ""
     oa_val = req.openai_api_key.strip() if req.openai_api_key else ""
     gem_val = req.gemini_api_key.strip() if req.gemini_api_key else ""
@@ -392,6 +398,7 @@ async def get_config():
         "openai_active": bool(oa_key),
         "gemini_active": bool(gem_key),
         "preferred_provider": pref,
+        "locked": ENV_KEYS_CONFIGURED,
         "has_fallback": True
     }
 
