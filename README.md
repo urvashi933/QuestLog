@@ -17,7 +17,7 @@ Created for the **Open Source Hackathon 2026**, this project demonstrates how to
 1. **Eternal Memory Integration**: Powered by the **Memori SDK**, your accomplishments are persisted and dynamically injected into the Dungeon Master's context.
 2. **Real-time Glassmorphic Dashboard**: A gorgeous dark-fantasy interface with glowing gold/emerald/violet overlays, animated HP meters, dynamic inventory slots, and live quest logs.
 3. **Developers' Memory Console**: A dedicated debugger showing exactly which memories the Memori SDK has pulled to guide the DM's turn in real time.
-4. **Seamless API Settings**: Configure your OpenAI and Memori API Keys directly inside the application UI, or run in **Local Sandbox Mode** with standard state fallbacks!
+4. **Multi-Model Support & Secure Settings**: Configure your **OpenAI GPT-4o-mini** or **Google Gemini 1.5 Flash** credentials, plus your **Memori API Key** directly inside the UI. It features a **Production Environment Lock** that automatically hides key configuration panels if credentials are pre-set in server variables. Or run in offline **Local Sandbox Mode** with standard state fallbacks!
 5. **Fast & Portable**: Built purely with FastAPI, Uvicorn, and Vanilla ES6 Javascript.
 
 ---
@@ -67,7 +67,8 @@ Copy the configuration template:
 copy .env.example .env
 ```
 Open `.env` and fill in your API credentials:
-* **`OPENAI_API_KEY`**: Your OpenAI API key for narrative generation.
+* **`OPENAI_API_KEY`**: Your OpenAI API key for narrative generation (optional if using Gemini).
+* **`GEMINI_API_KEY`**: Your Google Gemini API key (optional if using OpenAI, recommended free tier).
 * **`MEMORI_API_KEY`**: Get a free key at [app.memorilabs.ai](https://app.memorilabs.ai) to unlock eternal memory augmentation.
 
 *(You can also configure these keys interactively inside the web UI once running!)*
@@ -88,6 +89,18 @@ Open your browser and navigate to:
 👉 **[http://127.0.0.1:8000](http://127.0.0.1:8000)**
 
 Forge your hero, write your background lore, and enter Eldoria!
+
+### 🐳 Run with Docker (Alternative)
+If you prefer to run containerized:
+1. Build the Docker image:
+   ```bash
+   docker build -t questlog .
+   ```
+2. Run the container:
+   ```bash
+   docker run -p 8080:8080 -e PORT=8080 -e HOST=0.0.0.0 --env-file .env questlog
+   ```
+3. Open: **[http://127.0.0.1:8080](http://127.0.0.1:8080)**
 
 ---
 
