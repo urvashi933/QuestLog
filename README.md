@@ -2,6 +2,8 @@
 
 > **An immersive dark-fantasy RPG showcase utilizing the Memori SDK.**
 
+![QuestLog Gameplay Dashboard](assets/questlog_dashboard.png)
+
 QuestLog is a text-based dark fantasy RPG where you interact with an AI Dungeon Master (DM) that **never forgets**. 
 
 Created for the **Open Source Hackathon 2026**, this project demonstrates how to solve a major limitation of LLM-driven gaming: **context memory loss** (where the AI forgets your weapons, items, quest journal progress, and met NPCs after several turns). Using the **Memori SDK**, every major milestone, item acquired, damage taken, and faction relation is captured as persistent facts in the background and recalled automatically to ensure deep narrative consistency across sessions.
